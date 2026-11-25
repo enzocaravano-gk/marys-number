@@ -56,12 +56,20 @@ if (TOUCH) document.body.classList.add('touch');
 const rint = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 function makeItem(cat, lv) {
   if (cat === 0) {
-    const max = lv === 1 ? 20 : lv === 2 ? 99 : 999;
+    const max = lv === 1 ? 30 : lv === 2 ? 99 : 999;
     const n = rint(0, max);
     return { expr: String(n), answer: String(n) };
   }
   if (cat === 1) {
-    const max = lv === 1 ? 10 : lv === 2 ? 30 : lv <= 4 ? 99 : 500;
+    const max = lv === 1 ? 12 : lv === 2 ? 40 : lv <= 4 ? 99 : 500;
+    // dal livello 2: ogni tanto tre numeri (es. 7+5+8, 15+9-6)
+    if (lv >= 2 && Math.random() < 0.3) {
+      const m = lv === 2 ? 12 : 25;
+      const a = rint(2, m), b = rint(1, m);
+      if (Math.random() < 0.5) { const c = rint(1, m); return { expr: `${a}+${b}+${c}`, answer: String(a + b + c) }; }
+      const c = rint(1, a + b);
+      return { expr: `${a}+${b}-${c}`, answer: String(a + b - c) };
+    }
     if (Math.random() < 0.5) {
       const a = rint(1, max), b = rint(1, max);
       return { expr: `${a}+${b}`, answer: String(a + b) };
@@ -70,8 +78,13 @@ function makeItem(cat, lv) {
     return { expr: `${a}-${b}`, answer: String(a - b) };
   }
   // cat 2
-  const tab = lv === 1 ? 5 : 10;
-  if (lv >= 4 && Math.random() < 0.4) {               // livelli alti: due cifre per una cifra
+  const tab = lv === 1 ? 6 : 10;
+  // dal livello 3: moltiplicazione più un piccolo numero (es. 4×6+3)
+  if (lv >= 3 && Math.random() < 0.25) {
+    const a = rint(2, lv >= 5 ? 9 : 6), b = rint(2, 9), c = rint(1, 9);
+    return { expr: `${a}×${b}+${c}`, answer: String(a * b + c) };
+  }
+  if (lv >= 4 && Math.random() < 0.35) {               // livelli alti: due cifre per una cifra
     const a = rint(11, 25), b = rint(2, 9);
     return { expr: `${a}×${b}`, answer: String(a * b) };
   }
@@ -79,7 +92,7 @@ function makeItem(cat, lv) {
     const a = rint(1, tab), b = rint(1, 10);
     return { expr: `${a}×${b}`, answer: String(a * b) };
   }
-  const d = rint(2, lv === 2 ? 5 : (lv >= 4 ? 12 : 10)), q = rint(1, 10);
+  const d = rint(2, lv === 2 ? 6 : (lv >= 4 ? 12 : 10)), q = rint(1, 10);
   return { expr: `${d * q}÷${d}`, answer: String(q) };     // divisione sempre esatta
 }
 const POINTS = [5, 10, 15];
@@ -344,12 +357,14 @@ let bonusCount = 0, bonusQueue = [], bonusTotal = 0, bonusCaught = 0, bonusDone 
 let scorePop = 0, displayScore = 0;
 
 function quota() { return 8 + level * 2; }
-function fallSpeed() { return (H / 720) * (28 + (level - 1) * 14 + (sub - 1) * 4); }
-function spawnInterval() { return Math.max(0.55, 2.3 - (level - 1) * 0.28 - (sub - 1) * 0.06) * (COMPACT ? 1.25 : 1); }
+// scrivere i numeri è più facile delle parole: +20% di velocità e ~15% di pillole in più rispetto a Word Rain
+const SPEED_BOOST = 1.2, SPAWN_BOOST = 0.85;
+function fallSpeed() { return (H / 720) * (28 + (level - 1) * 14 + (sub - 1) * 4) * SPEED_BOOST; }
+function spawnInterval() { return Math.max(0.5, (2.3 - (level - 1) * 0.28 - (sub - 1) * 0.06) * SPAWN_BOOST) * (COMPACT ? 1.25 : 1); }
 function bonusSpeed() { return (H / 720) * (95 + (bonusCount - 1) * 28); }
 function bonusInterval() { return Math.max(0.4, 1.15 - (bonusCount - 1) * 0.12) * (COMPACT ? 1.2 : 1); }
 function catWeights() {
-  const table = [[70, 30, 0], [50, 40, 10], [35, 45, 20], [25, 45, 30], [15, 45, 40]];
+  const table = [[55, 35, 10], [40, 40, 20], [30, 42, 28], [20, 45, 35], [15, 42, 43]];
   return table[Math.min(level - 1, table.length - 1)];
 }
 
@@ -405,23 +420,53 @@ function spawnWord() {
 
 // ---------- Animali bonus ----------
 function animalRange() { return bonusCount <= 1 ? [2, 6] : bonusCount === 2 ? [3, 9] : [4, 12]; }
+// Una scheda è fatta di "parti": gruppi di animali, segni (+ -) e testo (es. "3×").
+const gridCols = n => n <= 3 ? n : n === 4 ? 2 : n <= 9 ? 3 : 4;
 function layoutAnimals(o) {
   o.e = Math.max(30, Math.round(FS * 1.75));
-  o.cols = o.n <= 3 ? o.n : o.n === 4 ? 2 : o.n <= 9 ? 3 : 4;
-  o.rows = Math.ceil(o.n / o.cols);
-  o.w = o.cols * o.e + o.e * 0.7;
-  o.h = o.rows * o.e + o.e * 0.7;
+  const e = o.e;
+  let w = 0, rows = 1;
+  for (const p of o.parts) {
+    if (p.t === 'grid') { p.cols = gridCols(p.n); p.rows = Math.ceil(p.n / p.cols); p.w = p.cols * e; rows = Math.max(rows, p.rows); }
+    else { p.fs = Math.round(e * 0.75); p.w = textW(p.s, p.fs) + e * 0.35; }
+    w += p.w;
+  }
+  w += (o.parts.length - 1) * e * 0.15;
+  o.rowsMax = rows;
+  o.w = w + e * 0.7;
+  o.h = rows * e + e * 0.7;
 }
 function spawnObject() {
   const [emoji] = bonusQueue.shift();
-  const [a, b] = animalRange();
+  let parts, ans;
+  // dal primo bonus alcune schede sono operazioni: 3 🐶 + 4 🐶, 7 🐶 - 2 🐶, (dal 2° bonus) 3× 🐶🐶
+  const pOp = Math.min(0.6, 0.3 + 0.1 * bonusCount);
+  if (Math.random() < pOp) {
+    const kinds = bonusCount >= 2 ? ['+', '-', '×'] : ['+', '-'];
+    const k = kinds[rint(0, kinds.length - 1)];
+    const g = bonusCount <= 1 ? [1, 5] : bonusCount === 2 ? [2, 6] : [3, 8];
+    if (k === '×') {
+      const m = rint(2, bonusCount >= 3 ? 5 : 4), n = rint(2, 4);
+      parts = [{ t: 'text', s: `${m}×` }, { t: 'grid', n }]; ans = m * n;
+    } else if (k === '+') {
+      const x = rint(g[0], g[1]), y = rint(g[0], g[1]);
+      parts = [{ t: 'grid', n: x }, { t: 'text', s: '+' }, { t: 'grid', n: y }]; ans = x + y;
+    } else {
+      const x = rint(g[0] + 1, g[1] + 2), y = rint(1, x - 1);
+      parts = [{ t: 'grid', n: x }, { t: 'text', s: '-' }, { t: 'grid', n: y, minus: true }]; ans = x - y;
+    }
+  } else {
+    const [a, b] = animalRange();
+    const n = rint(a, b);
+    parts = [{ t: 'grid', n }]; ans = n;
+  }
   const o = {
-    kind: 'obj', emoji, n: rint(a, b), buf: '', cat: 0, x: 0, y: 0,
+    kind: 'obj', emoji, parts, buf: '', cat: 0, x: 0, y: 0,
     color: BONUS_COLORS[Math.floor(Math.random() * BONUS_COLORS.length)],
     speed: bonusSpeed() * (0.85 + Math.random() * 0.3),
     wobble: Math.random() * 6.28, spin: (Math.random() - 0.5) * 2, hit: 0, grace: null,
   };
-  o.names = [String(o.n)]; o.text = o.names[0];
+  o.names = [String(ans)]; o.text = o.names[0];
   layoutAnimals(o);
   o.x = freeX(o.w, o.h); o.y = -o.h;
   words.push(o);
@@ -991,19 +1036,29 @@ function drawObject(o) {
   ctx.lineWidth = isT ? 5 : 4;
   ctx.strokeStyle = isT ? '#fff' : o.color;
   ctx.stroke();
-  ctx.font = `${Math.round(o.e * 0.85)}px ${EMOJI_FONT}`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const pad = o.e * 0.35;
-  for (let i = 0; i < o.n; i++) {
-    const c = i % o.cols, r = Math.floor(i / o.cols);
-    const inRow = r === o.rows - 1 ? o.n - r * o.cols : o.cols;          // ultima riga centrata
-    const off = (o.cols - inRow) * o.e / 2;
-    const ex = x + pad + off + c * o.e + o.e / 2, ey = y + pad + r * o.e + o.e / 2;
-    ctx.save();
-    ctx.translate(ex, ey);
-    ctx.rotate(Math.sin(o.wobble + i) * 0.18 * o.spin);
-    ctx.fillText(o.emoji, 0, 1);
-    ctx.restore();
+  const e = o.e, pad = e * 0.35;
+  let cx = x + pad;
+  for (let pi = 0; pi < o.parts.length; pi++) {
+    const p = o.parts[pi];
+    if (p.t === 'grid') {
+      const top = y + pad + (o.rowsMax - p.rows) * e / 2;            // gruppo centrato in verticale
+      ctx.font = `${Math.round(e * 0.85)}px ${EMOJI_FONT}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < p.n; i++) {
+        const c = i % p.cols, r = Math.floor(i / p.cols);
+        const inRow = r === p.rows - 1 ? p.n - r * p.cols : p.cols;   // ultima riga centrata
+        const off = (p.cols - inRow) * e / 2;
+        ctx.save();
+        ctx.translate(cx + off + c * e + e / 2, top + r * e + e / 2);
+        ctx.rotate(Math.sin(o.wobble + i) * 0.18 * o.spin);
+        if (p.minus) ctx.globalAlpha = 0.55;                            // quelli da togliere sono sbiaditi
+        ctx.fillText(o.emoji, 0, 1);
+        ctx.restore();
+      }
+    } else {
+      blitStr(p.s, cx + e * 0.15, y + o.h / 2 - p.fs / 2, p.fs, '#d81b60', false);
+    }
+    cx += p.w + e * 0.15;
   }
   ctx.restore();
   if (isT && o.buf) {
