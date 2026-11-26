@@ -312,6 +312,7 @@ function tone(freq, dur, type = 'sine', vol = 0.05, when = 0, slide = 0) {
 const r = (a, b) => a + Math.random() * (b - a);
 const vibrate = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
 const sfx = {
+  split: () => { [1046, 1318, 1568, 2093, 2637].forEach((f, i) => tone(f, 0.18, 'triangle', 0.06, i * 0.045)); noise(0.25, 4000, 1, 0.25, 0.05); tone(2093, 0.9, 'sine', 0.08, 0.25); tone(2637, 0.7, 'sine', 0.06, 0.32); },
   key: () => {
     noise(0.018, r(2800, 4200), 2.5, 0.45);
     noise(0.05, r(500, 800), 1.5, 0.35, 0.008);
@@ -384,10 +385,10 @@ function measure(text, fs = FS) {
 // larghezza della pillola: le operazioni hanno anche lo spazio per "=risultato"
 function itemW(w) { return w.isOp ? measure(w.text + '=' + '0'.repeat(w.names[0].length)) : measure(w.text); }
 
-function pickWord() {
+function pickWord(forceCat = null) {
   const wts = catWeights();
   const x = Math.random() * 100;
-  const cat = x < wts[0] ? 0 : (x < wts[0] + wts[1] ? 1 : 2);
+  const cat = forceCat !== null ? forceCat : (x < wts[0] ? 0 : (x < wts[0] + wts[1] ? 1 : 2));
   // si evita che due risultati sullo schermo inizino con la stessa cifra
   const usedFirst = new Set(words.map(w => w.names[0][0]));
   const inUse = new Set(words.map(w => w.text));
@@ -405,16 +406,31 @@ function freeX(w, h) {
   return x;
 }
 
+// pillola arcobaleno: quando la risolvi si apre in 2 numeri facili nello stesso punto
+const specialChance = () => Math.min(0.14, 0.07 + (level - 1) * 0.02);
 function spawnWord() {
-  const { expr, answer, cat } = pickWord();
+  const special = Math.random() < specialChance();
+  const { expr, answer, cat } = pickWord(special ? Math.floor(Math.random() * 2) : null);
   const item = { kind: 'word', text: expr, names: [answer], isOp: expr !== answer };
   const w = itemW(item);
   const colors = PILL_COLORS[cat];
   words.push({
-    ...item, buf: '', cat, x: freeX(w, PILL_H), y: -PILL_H, w, h: PILL_H,
-    color: colors[Math.floor(Math.random() * colors.length)],
+    ...item, buf: '', cat, x: freeX(w, PILL_H), y: -PILL_H, w, h: PILL_H, special,
+    color: special ? '#ffffff' : colors[Math.floor(Math.random() * colors.length)],
     speed: fallSpeed() * (0.85 + Math.random() * 0.3) * (cat === 2 ? 0.9 : 1),
     wobble: Math.random() * 6.28, hit: 0, grace: null,
+  });
+}
+
+function splitWord(wd) {
+  const cx = wd.x + wd.w / 2, y = Math.min(wd.y, groundY() - PILL_H * 3);
+  [-1, 1].forEach(side => {
+    const { expr, answer, cat } = pickWord(0);          // numeri semplici da ricopiare
+    const item = { kind: 'word', text: expr, names: [answer], isOp: false };
+    const w = itemW(item), colors = PILL_COLORS[cat];
+    const x = Math.max(6, Math.min(W - w - FS * 1.4, side < 0 ? cx - w - 8 : cx + 8));
+    words.push({ ...item, buf: '', cat, x, y, w, h: PILL_H, color: colors[Math.floor(Math.random() * colors.length)], born: 0.35,
+      speed: fallSpeed() * 0.9, wobble: Math.random() * 6.28, hit: 0, grace: null });
   });
 }
 
@@ -541,8 +557,15 @@ function startGrace(wd) {
 function landWord(wd) {
   if (target === wd) target = null;
   words.splice(words.indexOf(wd), 1);
-  landed.push({ text: wd.text, w: measure(wd.text, LFS), color: wd.color, x: wd.x, y0: wd.y, t: 0 });
-  shake = 10;
+  landed.push({ text: wd.text, w: measure(wd.text, LFS), color: wd.special ? '#e0c3ff' : wd.color, x: wd.x, y0: wd.y, t: 0 });
+  if (wd.special) {
+    // arcobaleno non risolta: si apre a terra e i suoi 2 numeri occupano altri posti nella fila
+    for (let i = 0; i < 2; i++) { const { expr, cat } = pickWord(0); landed.push({ text: expr, w: measure(expr, LFS), color: PILL_COLORS[cat][i], x: wd.x, y0: wd.y, t: 0 }); }
+    const cx = wd.x + wd.w / 2;
+    for (let i = 0; i < 24; i++) burst(cx, wd.y + wd.h / 2, `hsl(${i * 15},90%,65%)`, 1, 260);
+    floaters.push({ x: cx, y: wd.y - 10, text: '+2 A TERRA!', t: 1.3, color: '#ff5050' });
+    shake = 16;
+  } else shake = 10;
   sfx.land();
   if (landedLayout().rowsUsed > ROWS) gameOver();
 }
@@ -567,6 +590,12 @@ function destroyWord(wd) {
   const saved = wd.grace !== null;
   floaters.push({ x: cx, y: cy, text: '+' + pts + (saved ? ' SALVATA!' : ''), t: 1.2, color: wd.color });
   if (wd.kind === 'obj') { bonusCaught++; bonusDone++; return; }
+  if (wd.special) {
+    sfx.split();
+    for (let i = 0; i < 30; i++) burst(cx, cy, `hsl(${i * 12},90%,65%)`, 1, 320);
+    floaters.push({ x: cx, y: cy - 30, text: 'X2!', t: 1.2, color: '#ffe066' });
+    splitWord(wd);
+  }
   cleared++;
   if (cleared >= quota()) nextSub();
 }
@@ -752,6 +781,10 @@ function wordAt(px, py) {
   return null;
 }
 canvas.addEventListener('pointerup', e => {
+  // pulsante pausa
+  { const r0 = canvas.getBoundingClientRect();
+    if ((state === 'play' || state === 'pause') && onPauseBtn(e.clientX - r0.left, e.clientY - r0.top)) { handleKey('Escape'); if (e.pointerType !== 'mouse' && state === 'play') openKeyboard(); return; } }
+  if (state === 'pause' && e.pointerType === 'mouse') { handleKey('Escape'); return; }
   // durante la partita, toccare una parola la aggancia
   if (state === 'play') {
     const r = canvas.getBoundingClientRect();
@@ -817,6 +850,7 @@ function update(dt) {
   const gy = groundY();
   for (const w of [...words]) {
     if (w.hit > 0) w.hit -= dt;
+    if (w.born > 0) w.born -= dt;
     if (w.grace !== null) {
       const before = Math.ceil(w.grace);
       w.grace -= dt;
@@ -955,12 +989,16 @@ function shade(hex, f) { return rgb(hex2rgb(hex).map(v => Math.max(0, Math.min(2
 
 function drawPill(x, y, w, str, color, opt = {}) {
   const { typed = 0, isTarget = false, dim = false, hit = 0, fs = FS, h = PILL_H, alarm = 0, err = '', pre = '',
-          doneColor = 'rgba(0,0,0,0.28)', restColor = null } = opt;
+          doneColor = 'rgba(0,0,0,0.28)', restColor = null, rainbow = false } = opt;
   if (hit > 0) x += Math.sin(hit * 80) * 4;
   ctx.save();
   ctx.shadowColor = alarm ? '#ff2a2a' : (isTarget ? '#ffffff' : color);
   ctx.shadowBlur = alarm ? 10 + alarm * 25 : (isTarget ? 22 : 6 + bg.stars * 14);
-  ctx.fillStyle = dim ? shade(color, 0.6) : color;
+  if (rainbow && !dim) {
+    const g = ctx.createLinearGradient(x, 0, x + w, 0), ph = performance.now() / 8;
+    for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, `hsl(${(ph + i * 60) % 360},95%,72%)`);
+    ctx.fillStyle = g; ctx.shadowColor = `hsl(${ph % 360},95%,70%)`; ctx.shadowBlur = 18;
+  } else ctx.fillStyle = dim ? shade(color, 0.6) : color;
   roundRect(x, y, w, h, h / 2);
   ctx.fill();
   ctx.shadowBlur = 0;
@@ -1008,9 +1046,13 @@ function drawWord(w) {
     // operazione: "7×5=" e poi il risultato che stai scrivendo, con trattini per le cifre mancanti
     const ans = w.names[0], free = Math.max(0, ans.length - w.buf.length - err.length);
     drawPill(x, w.y, w.w, w.buf + err + '_'.repeat(free), w.color,
-      { pre: w.text + '=', typed: w.buf.length, isTarget: isT, hit: w.hit, alarm, err, doneColor: '#0b6b2e', restColor: 'rgba(0,0,0,0.35)' });
+      { pre: w.text + '=', typed: w.buf.length, isTarget: isT, hit: w.hit, alarm, err, doneColor: '#0b6b2e', restColor: 'rgba(0,0,0,0.35)', rainbow: !!w.special });
   } else {
-    drawPill(x, w.y, w.w, w.text, w.color, { typed: w.buf.length, isTarget: isT, hit: w.hit, alarm, err });
+    // i numeri appena nati da un'arcobaleno "spuntano" ingrandendosi
+    const grow = w.born > 0 ? 1 - w.born / 0.35 : 1;
+    if (grow < 1) { ctx.save(); const cx = x + w.w / 2, cy = w.y + w.h / 2; ctx.translate(cx, cy); ctx.scale(0.3 + 0.7 * grow, 0.3 + 0.7 * grow); ctx.translate(-cx, -cy); }
+    drawPill(x, w.y, w.w, w.text, w.color, { typed: w.buf.length, isTarget: isT, hit: w.hit, alarm, err, rainbow: !!w.special });
+    if (grow < 1) ctx.restore();
   }
   if (w.grace !== null) {
     const cx = x + w.w + FS * 0.2, cy = w.y, rr = FS * 1.1;
@@ -1174,6 +1216,25 @@ function drawHUDSmall() {
   roundRect(barX, barY, barW, barH, barH / 2); ctx.stroke();
   drawGroundMeter();
 }
+
+// ---------- pulsante pausa (in alto a destra, sotto i punteggi) ----------
+function pauseBtn() {
+  const top = (COMPACT || H < 620) ? 36 : 18 + FS * 2.1 + Math.max(9, FS * 2.1 * 0.34) + 26;
+  return { x: W - 26, y: top + 26, r: 18 };
+}
+const onPauseBtn = (px, py) => { const b = pauseBtn(); return Math.hypot(px - b.x, py - b.y) <= b.r + 12; };
+function drawPauseBtn() {
+  if (state !== 'play' && state !== 'pause') return;
+  const b = pauseBtn();
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.28); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  if (state === 'pause') { ctx.beginPath(); ctx.moveTo(b.x - 5, b.y - 8); ctx.lineTo(b.x + 8, b.y); ctx.lineTo(b.x - 5, b.y + 8); ctx.fill(); }
+  else { ctx.fillRect(b.x - 7, b.y - 8, 5, 16); ctx.fillRect(b.x + 2, b.y - 8, 5, 16); }
+  ctx.restore();
+}
+
 function drawGroundMeter() {
   const fill = groundFill(), gy = groundY();
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, gy - 6, W, 6);
@@ -1307,6 +1368,7 @@ function draw(time) {
   if (state === 'play' || state === 'pause' || state === 'over') { drawHUD(); drawBanner(); }
   ctx.restore();
   drawOverlay();
+  drawPauseBtn();
   if (DEBUG) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, H - 110, W, 110);
     ctx.fillStyle = '#0f0'; ctx.font = '12px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
