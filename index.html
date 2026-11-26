@@ -358,7 +358,7 @@ let scorePop = 0, displayScore = 0;
 
 function quota() { return 8 + level * 2; }
 // scrivere i numeri è più facile delle parole: +20% di velocità e ~15% di pillole in più rispetto a Word Rain
-const SPEED_BOOST = 1.2, SPAWN_BOOST = 0.85;
+const SPEED_BOOST = 1.6, SPAWN_BOOST = 0.7;   // alzati: i primi livelli erano troppo facili
 function fallSpeed() { return (H / 720) * (28 + (level - 1) * 14 + (sub - 1) * 4) * SPEED_BOOST; }
 function spawnInterval() { return Math.max(0.5, (2.3 - (level - 1) * 0.28 - (sub - 1) * 0.06) * SPAWN_BOOST) * (COMPACT ? 1.25 : 1); }
 function bonusSpeed() { return (H / 720) * (95 + (bonusCount - 1) * 28); }
