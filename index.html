@@ -35,6 +35,8 @@
 //  MARY'S NUMBER — I numeri di Maria
 // =====================================================================
 
+// Safari su iPhone: se il colore di riempimento è una sfumatura (o semitrasparente) disegna le emoji come sagome.
+// Per questo prima di ogni emoji si imposta un nero pieno: le emoji a colori lo ignorano.
 const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const HS_KEY = 'marysNumber_classifica';
 const HS_MAX = 10;
@@ -1428,7 +1430,7 @@ function drawObject(o) {
         ctx.translate(cx + off + c * e + e / 2, top + r * e + e / 2);
         ctx.rotate(Math.sin(o.wobble + i) * 0.18 * o.spin);
         if (p.minus) ctx.globalAlpha = 0.55;                            // quelli da togliere sono sbiaditi
-        ctx.fillText(o.emoji, 0, 1);
+        ctx.fillStyle = '#000'; ctx.fillText(o.emoji, 0, 1);
         ctx.restore();
       }
     } else {
